@@ -14,6 +14,12 @@ opencv-python-headless>=4.9.0  # Grid line detection for scanned PDFs (no GUI ne
 pytesseract>=0.3.10          # Python wrapper for Tesseract OCR engine
 numpy>=1.26.0                # Required by OpenCV
 
+# ── Surya OCR (AI-based, better accuracy than Tesseract) ─────────
+# Activate with: USE_SURYA=1 (env var) or config.USE_SURYA = True
+# CPU pe slow hoga (~5-10s/page), GPU pe fast (~0.3s/page)
+# First run pe ~500MB model weights download honge automatically
+surya-ocr>=0.7.0             # Table recognition + OCR (90+ languages, beats cloud OCR)
+
 # ── Row Mapping ──────────────────────────────────────────────────
 rapidfuzz>=3.6.0             # Fuzzy label matching — canonical row assignment
 

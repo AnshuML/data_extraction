@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from typing import Optional
 import os
 import sys
 import time
@@ -79,19 +80,19 @@ def _preflight() -> bool:
             config.TESSERACT_CMD,
         )
 
-    # Ollama
+    # Ollama — warning only; agents handle absence gracefully (deterministic mode)
     if not is_ollama_alive():
-        logger.error(
-            "Ollama server not reachable at %s\n"
-            "  Start it with: ollama serve\n"
-            "  Then pull models:\n"
+        logger.warning(
+            "Ollama server not reachable at %s — running in DETERMINISTIC MODE.\n"
+            "  LLM-based disambiguation will be skipped (RapidFuzz rows used as-is).\n"
+            "  To enable full LLM mode:\n"
+            "    ollama serve\n"
             "    ollama pull %s\n"
             "    ollama pull %s",
             config.OLLAMA_BASE_URL,
             config.EXTRACTOR_MODEL,
             config.VERIFIER_MODEL,
         )
-        ok = False
 
     return ok
 
@@ -100,7 +101,7 @@ def _preflight() -> bool:
 # Single PDF processing
 # ─────────────────────────────────────────────────────────────────────────────
 
-def process_single(pdf_path: str, out_path: str | None) -> int:
+def process_single(pdf_path: str, out_path: Optional[str]) -> int:
     """Returns 0 on SUCCESS/PARTIAL, 1 on FAILED."""
     if not os.path.exists(pdf_path):
         logger.error("PDF not found: %s", pdf_path)
@@ -132,7 +133,7 @@ def process_single(pdf_path: str, out_path: str | None) -> int:
 # Batch processing
 # ─────────────────────────────────────────────────────────────────────────────
 
-def process_batch(folder: str, out_folder: str | None) -> int:
+def process_batch(folder: str, out_folder: Optional[str]) -> int:
     pdf_files = [
         f for f in os.listdir(folder)
         if f.lower().endswith(".pdf")

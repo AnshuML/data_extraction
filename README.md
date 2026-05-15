@@ -34,7 +34,9 @@ Scanned / digital government financial PDFs se **Block C (Fixed Assets)** aur **
 │ │                                                                           │   │
 │ │   Text PDF?  ──→  pdfplumber (exact cell bounding boxes)                 │   │
 │ │                        │                                                  │   │
-│ │   Scanned PDF? ──→  OpenCV (grid line detection)                         │   │
+│ │   Scanned PDF? ──→  [USE_SURYA=1] Surya Table Recognition (AI)           │   │
+│ │                     └──→  Surya OCR (per-cell, 90+ languages)            │   │
+│ │                OR  [default]  OpenCV (grid line detection)                │   │
 │ │                     └──→  Tesseract OCR (per-cell)                       │   │
 │ │                                                                           │   │
 │ │   Output: CellMatrix [ [row0col0, row0col1, ...], [row1col0, ...] ]      │   │
@@ -291,7 +293,7 @@ data_extraction/
 ├── main.py                      ← CLI entry point (single + batch mode)
 │
 ├── pipeline/                    ← Deterministic extraction layers
-│   ├── pdf_processor.py         ← Layer 1: PyMuPDF + pdfplumber + OpenCV + Tesseract
+│   ├── pdf_processor.py         ← Layer 1: PyMuPDF + pdfplumber + Surya / OpenCV + Tesseract
 │   ├── table_detector.py        ← Layer 2: Cell matrix → Block C/D + column mapping
 │   └── row_mapper.py            ← Layer 3: RapidFuzz → canonical rows + values
 │
@@ -313,35 +315,116 @@ data_extraction/
 
 ---
 
-## Quick Start
+## Complete Setup & Run Guide
+
+### Step 1 — Python Dependencies Install karo
 
 ```powershell
-# 1. Install dependencies
 pip install -r requirements.txt
+```
 
-# 2. Pull Ollama models
-ollama pull gemma3:4b
-ollama pull llama3.2:3b
+> **Note:** `surya-ocr` pehli baar run karne pe ~500MB model weights automatically download karega.
 
-# 3. Start Ollama server (separate terminal)
+---
+
+### Step 2 — Tesseract OCR Install karo (Windows)
+
+```powershell
+# Download karo aur install karo:
+# https://github.com/UB-Mannheim/tesseract/wiki
+# Install path: C:\Program Files\Tesseract-OCR\tesseract.exe
+# Language pack: English (eng.traineddata) ZAROOR select karo
+```
+
+---
+
+### Step 3 — Ollama Install + Models Pull karo
+
+```powershell
+# Ollama download: https://ollama.com/download
+
+# Models pull karo (ek baar — phir local rehte hain)
+ollama pull gemma3:4b        # Agent 1 — Extractor (~3GB)
+ollama pull llama3.2:3b      # Agent 2 — Verifier  (~2GB)
+
+# Alag terminal mein server start karo
 ollama serve
+```
 
-# 4. Run
+---
+
+### Step 4 — `run_test.py` Configure karo
+
+```python
+# run_test.py ke top mein yeh lines edit karo:
+PDF_PATH = r"C:\path\to\your\BalanceSheet.pdf"   # apna PDF path
+OUT_PATH = r"C:\path\to\output\result.xlsx"       # output Excel path
+SCALE    = 1          # 1 = PDF numbers Rupees mein | 100000 = Lakhs mein
+
+EXTRACTOR_MODEL = "gemma3:4b"     # Agent 1
+VERIFIER_MODEL  = "llama3.2:3b"   # Agent 2
+CONTEXT_WINDOW  = 32000           # gemma3:4b ke liye
+```
+
+---
+
+### Step 5 — Pipeline Run karo
+
+#### Option A — Tesseract (Default, CPU, fast)
+
+```powershell
+# Normal mode — OpenCV + Tesseract for scanned PDFs
 python run_test.py
 ```
 
-### CLI (advanced)
+#### Option B — Surya OCR (Better accuracy, CPU pe slow ~5-10s/page)
 
 ```powershell
-# Single PDF
-python main.py --pdf "path\to\BalanceSheet.pdf" --scale 100000
-
-# Batch folder
-python main.py --batch "path\to\pdfs\" --out "path\to\outputs\" --scale 100000
-
-# Custom models
-python main.py --pdf "..." --extractor qwen2.5:3b --verifier llama3:8b
+# Surya mode — AI-based table recognition (recommended for complex scanned PDFs)
+$env:USE_SURYA="1"; python run_test.py
 ```
+
+#### Option C — Bina Ollama ke (Deterministic mode, no LLM)
+
+```powershell
+# Ollama nahi hai toh bhi chalega — sirf RapidFuzz + Math Auditor
+python run_test.py
+```
+
+---
+
+### CLI (Advanced — single PDF ya batch)
+
+```powershell
+# Single PDF — standard mode
+python main.py --pdf "C:\path\to\BalanceSheet.pdf" --out "C:\outputs\result.xlsx"
+
+# Single PDF — numbers Lakhs mein hain toh scale=100000
+python main.py --pdf "C:\path\to\BalanceSheet.pdf" --scale 100000
+
+# Single PDF — Surya OCR ke saath
+$env:USE_SURYA="1"; python main.py --pdf "C:\path\to\BalanceSheet.pdf"
+
+# Batch — poore folder ke saare PDFs
+python main.py --batch "C:\path\to\pdfs\" --out "C:\path\to\outputs\"
+
+# Custom Ollama models
+python main.py --pdf "C:\path\to\BalanceSheet.pdf" --extractor gemma4:e4b --verifier llama3.1:8b
+
+# Sabse powerful — 32GB RAM system ke liye
+$env:USE_SURYA="1"; python main.py --pdf "C:\path\to\BalanceSheet.pdf" --extractor gemma4:31b --verifier llama3.1:8b --scale 100000
+```
+
+---
+
+### Model Selection Guide (RAM ke hisaab se)
+
+| RAM | Extractor Model | Verifier Model | Command |
+|-----|----------------|----------------|---------|
+| 8 GB | `gemma3:4b` | `llama3.2:3b` | default |
+| 12 GB | `gemma4:e4b` | `llama3.2:3b` | `--extractor gemma4:e4b` |
+| 16 GB | `gemma4:e4b` | `llama3.1:8b` | `--extractor gemma4:e4b --verifier llama3.1:8b` |
+| 32 GB | `gemma4:31b` | `llama3.1:8b` | `--extractor gemma4:31b --verifier llama3.1:8b` |
 
 ---
 
@@ -371,7 +454,8 @@ python main.py --pdf "..." --extractor qwen2.5:3b --verifier llama3:8b
 | Component | Tool | Why |
 |-----------|------|-----|
 | Text PDF parsing | PyMuPDF + pdfplumber | Exact cell coordinates — no column shift |
-| Scanned PDF OCR | OpenCV + Tesseract 5 | Grid lines → per-cell OCR |
+| Scanned PDF OCR (default) | OpenCV + Tesseract 5 | Grid lines → per-cell OCR |
+| Scanned PDF OCR (better) | Surya OCR | AI table rec, row=1.0 on FinTabNet, 90+ languages |
 | Row label matching | RapidFuzz | 50+ aliases per canonical row |
 | LLM Extractor | gemma3:4b (Ollama) | Local, fast, structured JSON output |
 | LLM Verifier | llama3.2:3b (Ollama) | Local, number cross-check |

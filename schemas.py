@@ -2,8 +2,7 @@
 Single source of truth for Block C and Block D schemas.
 Every other file imports from here — never duplicate schema definitions.
 """
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import copy
 
 # ─────────────────────────────────────────────────────────────────────────────

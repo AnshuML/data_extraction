@@ -24,8 +24,10 @@ class ColorFormatter(logging.Formatter):
     FMT = "%(asctime)s | %(levelname)-8s | %(name)-30s | %(message)s"
 
     def format(self, record: logging.LogRecord) -> str:
-        color  = _LOG_COLORS.get(record.levelname, "")
-        reset  = _LOG_COLORS["RESET"]
+        # Copy record to avoid mutating original — prevents color bleed into file logs
+        record     = logging.makeLogRecord(record.__dict__)
+        color      = _LOG_COLORS.get(record.levelname, "")
+        reset      = _LOG_COLORS["RESET"]
         record.levelname = f"{color}{record.levelname}{reset}"
         return super().format(record)
 

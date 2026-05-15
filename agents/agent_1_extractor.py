@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 import config
 import schemas
 from utils.logger import get_logger
-from utils.ollama_client import call_extractor, parse_json_from_response
+from utils.ollama_client import call_extractor
 
 logger = get_logger("agent_1_extractor")
 
@@ -54,7 +54,7 @@ AMBIGUOUS ROWS:
 {rows_summary}
 
 SUPPORTING RAW TEXT (from same page):
-{raw_text_snippet[:2000]}
+{raw_text_snippet[:config.LLM_SNIPPET_MAX_CHARS]}
 
 Return ONLY a valid JSON array like:
 [
@@ -89,7 +89,7 @@ AMBIGUOUS ROWS:
 {rows_summary}
 
 SUPPORTING RAW TEXT:
-{raw_text_snippet[:2000]}
+{raw_text_snippet[:config.LLM_SNIPPET_MAX_CHARS]}
 
 Return ONLY a valid JSON array:
 [

@@ -24,14 +24,23 @@ OUT_PATH = r"C:\Users\DELL\Desktop\extract\data_extraction\outputs\DSL_118184_co
 SCALE    = 1        # 1 = Rupees already | 100000 = PDF numbers in Lakhs
 
 # Ollama models (change agar alag model install hai)
-EXTRACTOR_MODEL = "gemma3:4b"    # ya "qwen2.5:3b" ya "gemma2:2b"
-VERIFIER_MODEL  = "llama3.2:3b"  # ya "llama3:8b" ya "mistral:7b"
+EXTRACTOR_MODEL  = "gemma3:4b"    # ya "qwen2.5:3b" ya "gemma2:2b"
+VERIFIER_MODEL   = "llama3.2:3b"  # ya "llama3:8b" ya "mistral:7b"
+
+# Context window — model ke hisaab se set karo:
+# gemma4:31b / gemma4:26b  → 256000
+# gemma4:e4b / gemma4:e2b  → 128000
+# gemma3:4b / qwen2.5:7b   → 32000
+# llama3.1:8b / llama3.2:3b → 8000
+CONTEXT_WINDOW = 32000
 # ═══════════════════════════════════════════════════════
 
 import config
-config.PDF_UNIT_MULTIPLIER = SCALE
-config.EXTRACTOR_MODEL     = EXTRACTOR_MODEL
-config.VERIFIER_MODEL      = VERIFIER_MODEL
+config.PDF_UNIT_MULTIPLIER  = SCALE
+config.EXTRACTOR_MODEL      = EXTRACTOR_MODEL
+config.VERIFIER_MODEL       = VERIFIER_MODEL
+config.OLLAMA_CONTEXT_WINDOW = CONTEXT_WINDOW
+config.LLM_SNIPPET_MAX_CHARS = CONTEXT_WINDOW // 4
 
 os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
 

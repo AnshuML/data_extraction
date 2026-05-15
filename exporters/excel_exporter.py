@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 import openpyxl
 from openpyxl.styles import (
-    Alignment, Border, Font, PatternFill, Side, numbers
+    Alignment, Border, Font, PatternFill, Side
 )
 from openpyxl.utils import get_column_letter
 
