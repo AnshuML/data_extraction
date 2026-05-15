@@ -216,6 +216,9 @@ def merge_into_template(
         canonical = tmpl_row[label_field]
         if canonical in by_label:
             merged = {**tmpl_row, **by_label[canonical]}
+            # Schema is fixed — sl_no and label always come from template
+            merged["sl_no"]   = tmpl_row["sl_no"]
+            merged[label_field] = canonical
         else:
             merged = {**tmpl_row}
         result.append(merged)

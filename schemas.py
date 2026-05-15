@@ -22,9 +22,12 @@ BLOCK_C_COLUMN_ALIASES: Dict[str, List[str]] = {
     "dep_adjustment":           ["dep adj", "dep on sold", "dep on discarded", "depreciation adjustment",
                                  "adj for sold"],
     "dep_up_to_end":            ["dep closing", "dep upto end", "depreciation closing", "dep up to end",
-                                 "accum dep closing", "up to year end"],
-    "net_opening":              ["net opening", "wdv opening", "net value opening", "wdv at beginning"],
-    "net_closing":              ["net closing", "wdv closing", "net value closing", "wdv at end", "net block"],
+                                 "accum dep closing", "up to year end", "upto end of year",
+                                 "total depreciation", "accumulated depreciation"],
+    "net_opening":              ["net opening", "wdv opening", "net value opening", "wdv at beginning",
+                                 "written down value opening", "book value opening"],
+    "net_closing":              ["net closing", "wdv closing", "net value closing", "wdv at end", "net block",
+                                 "written down value closing", "book value closing", "wdv"],
 }
 
 BLOCK_C_CANONICAL_ROWS: List[Dict[str, Any]] = [

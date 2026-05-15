@@ -238,15 +238,54 @@ def detect_tables(cell_matrices: List[CellMatrix]) -> List[TableData]:
         # Remove fully-empty rows
         data_rows = [r for r in data_rows if any(c.strip() for c in r)]
 
-        # Map columns
+        # Map columns via RapidFuzz header matching
+        num_cols = max((len(r) for r in cm.rows), default=0)
         if any(c.strip() for c in header_row):
             if block_type == "block_c":
                 col_map = _map_columns_block_c(header_row)
             else:
                 col_map = _map_columns_block_d(header_row)
         else:
-            num_cols = max((len(r) for r in cm.rows), default=0)
-            col_map  = _infer_columns_by_position(num_cols, block_type)
+            col_map = _infer_columns_by_position(num_cols, block_type)
+
+        # Schema is FIXED — patch any unmapped columns positionally.
+        # Block C always has 13 cols (1 label + 12 numeric).
+        # Block D always has  3 cols (1 label +  2 numeric).
+        expected_fields = (
+            ["asset_type", "gross_opening", "gross_addition_reval",
+             "gross_addition_actual", "gross_deduction", "gross_closing",
+             "dep_up_to_beginning", "dep_provided_during_year",
+             "dep_adjustment", "dep_up_to_end", "net_opening", "net_closing"]
+            if block_type == "block_c"
+            else ["item_name", "opening_rs", "closing_rs"]
+        )
+        already_mapped = {dc.field_name for dc in col_map
+                          if dc.field_name not in ("__skip__", "__unknown__")}
+        missing_fields  = [f for f in expected_fields if f not in already_mapped]
+
+        if missing_fields:
+            # Find physical columns that are currently unmapped
+            unmapped_col_idxs = [
+                dc.col_index for dc in col_map
+                if dc.field_name in ("__unknown__",)
+            ]
+            for i, field_name in enumerate(missing_fields):
+                if i < len(unmapped_col_idxs):
+                    # Patch the unmapped column with the expected field
+                    for dc in col_map:
+                        if dc.col_index == unmapped_col_idxs[i]:
+                            dc.field_name = field_name
+                            dc.confidence  = 55.0   # low but usable
+                            break
+                    logger.debug(
+                        "Positional patch: col[%d] → %s",
+                        unmapped_col_idxs[i], field_name,
+                    )
+            if missing_fields:
+                logger.info(
+                    "Column patch applied for %s: %d fields filled positionally",
+                    block_type, len(missing_fields),
+                )
 
         known_cols = [c for c in col_map if c.field_name not in ("__skip__", "__unknown__")]
         logger.info(
