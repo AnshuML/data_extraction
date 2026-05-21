@@ -2,3 +2,9 @@ pymupdf
 pdfplumber
 python-docx
 Pillow
+pandas
+openpyxl
+requests
+pytesseract
+paddleocr
+rapidocr-onnxruntime

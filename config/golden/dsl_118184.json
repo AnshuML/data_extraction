@@ -1,0 +1,35 @@
+{
+  "company": "DSL 118184",
+  "psl": "00110",
+  "block_c": [
+    {"sl_no": 1, "asset_type": "Land", "gross_opening": 0, "gross_closing": 0, "net_opening": 0, "net_closing": 0},
+    {"sl_no": 2, "asset_type": "Building", "gross_opening": 90234948, "gross_closing": 90234948, "net_opening": 30436770, "net_closing": 27534895},
+    {"sl_no": 3, "asset_type": "Plant and Machinery", "gross_opening": 275864078, "gross_closing": 278339197, "net_opening": 85933150, "net_closing": 74643916},
+    {"sl_no": 4, "asset_type": "Transport Equipment", "gross_opening": 7315110, "gross_closing": 7270607, "net_opening": 2449870, "net_closing": 2044562},
+    {"sl_no": 5, "asset_type": "Computer Equipment & software", "gross_opening": 499354, "gross_closing": 499354, "net_opening": 88157, "net_closing": 52894},
+    {"sl_no": 6, "asset_type": "Pollution control equipment", "gross_opening": 0, "gross_closing": 0, "net_opening": 0, "net_closing": 0},
+    {"sl_no": 7, "asset_type": "Others", "gross_opening": 1579538, "gross_closing": 1636022, "net_opening": 516278, "net_closing": 508535},
+    {"sl_no": 8, "asset_type": "Sub-total(2 to 7)", "gross_opening": 375493028, "gross_closing": 377980128, "net_opening": 119424225, "net_closing": 104784802},
+    {"sl_no": 9, "asset_type": "Capital Work in Progress", "gross_opening": 0, "gross_closing": 0, "net_opening": 0, "net_closing": 0},
+    {"sl_no": 10, "asset_type": "Total(1+8+9)", "gross_opening": 375493028, "gross_closing": 377980128, "net_opening": 119424225, "net_closing": 104784802}
+  ],
+  "block_d": [
+    {"sl_no": 1, "opening_rs": 86186471, "closing_rs": 45937642},
+    {"sl_no": 2, "opening_rs": 0, "closing_rs": 0},
+    {"sl_no": 3, "opening_rs": 0, "closing_rs": 0},
+    {"sl_no": 4, "opening_rs": 86186471, "closing_rs": 45937642},
+    {"sl_no": 5, "opening_rs": 5255419, "closing_rs": 3822049},
+    {"sl_no": 6, "opening_rs": 31399551, "closing_rs": 18589222},
+    {"sl_no": 7, "opening_rs": 122841441, "closing_rs": 68348913},
+    {"sl_no": 8, "opening_rs": 5488795, "closing_rs": 7846190},
+    {"sl_no": 9, "opening_rs": 22923469, "closing_rs": 17873135},
+    {"sl_no": 10, "opening_rs": 85980718, "closing_rs": 100156124},
+    {"sl_no": 11, "opening_rs": 237234423, "closing_rs": 194224362},
+    {"sl_no": 12, "opening_rs": 37235420, "closing_rs": 33802896},
+    {"sl_no": 13, "opening_rs": 30188408, "closing_rs": 26741035},
+    {"sl_no": 14, "opening_rs": 9757330, "closing_rs": 8643350},
+    {"sl_no": 15, "opening_rs": 77181158, "closing_rs": 69187281},
+    {"sl_no": 16, "opening_rs": 160053265, "closing_rs": 125037081},
+    {"sl_no": 17, "opening_rs": 65936439, "closing_rs": 227283749}
+  ]
+}
