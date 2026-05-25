@@ -1,0 +1,66 @@
+{
+  "profiles": {
+    "lacs_corporate": {
+      "detect_patterns": ["amounts in lacs", "amounts m lacs"],
+      "block_d": {
+        "1": {"add": ["note_8.raw_materials"]},
+        "2": {"zero": true},
+        "3": {"add": ["note_8.stores_spares"]},
+        "5": {"add": ["note_8.wip"]},
+        "6": {"add": ["note_8.finished"]},
+        "8": {"add": ["note_10.cash_and_bank"]},
+        "9": {
+          "opening": {"add": ["face.trade_receivables"]},
+          "closing": {"add": ["face.trade_receivables"]}
+        },
+        "10": {"add": ["face.other_current_assets"]},
+        "12": {
+          "opening": {"add": ["note_17.micro_creditors", "note_17.other_creditors"]},
+          "closing": {
+            "add": ["note_17.other_creditors", "note_18.salary_wages_payable"]
+          }
+        },
+        "13": {"add": ["note_16.cash_credit"]},
+        "14": {
+          "opening": {
+            "add": ["note_20.total", "note_18.salary_wages_payable"],
+            "subtract": ["note_16.current_maturities"]
+          },
+          "closing": {
+            "add": [
+              "note_20.total",
+              "note_18.salary_wages_payable",
+              "note_16.current_maturities"
+            ],
+            "subtract": ["note_16.cash_credit", "note_20.advance_from_customers"]
+          }
+        },
+        "17": {"add": ["face.borrowings_non_current"]}
+      }
+    },
+    "rupees_schedule": {
+      "detect_patterns": ["schedule 8", "schedule 9", "schedule 10"],
+      "block_d": {
+        "1": {"add": ["schedule_6.stock_in_hand"]},
+        "2": {"zero": true},
+        "3": {"zero": true},
+        "5": {"add": ["schedule_6.wip"]},
+        "6": {"add": ["schedule_6.finished"]},
+        "8": {"add": ["schedule_8.total"]},
+        "9": {"add": ["face.trade_receivables"]},
+        "10": {"add": ["face.loans_and_advances"]},
+        "12": {
+          "add": [
+            "schedule_10.creditors_raw_material",
+            "schedule_10.creditors_expenses"
+          ]
+        },
+        "13": {"add": ["schedule_3.cash_credit"]},
+        "14": {
+          "add": ["schedule_10.other_liabilities_total"]
+        },
+        "17": {"add": ["schedule_3.unsecured_loan"]}
+      }
+    }
+  }
+}

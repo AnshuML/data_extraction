@@ -16,6 +16,7 @@ from compile_extraction.excel import (
     normalize_block_c_from_excel,
     normalize_block_d_from_excel,
 )
+from compile_extraction.financial_validation import validate_financial_integrity
 from compile_extraction.quality import score_against_golden, score_extraction
 
 logging.basicConfig(
@@ -29,10 +30,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Extract Block C & D compile sheet from balance sheet PDF"
     )
-    parser.add_argument("pdf", help="Path to balance sheet PDF")
+    parser.add_argument(
+        "input",
+        help="Balance sheet PDF path, or compile Excel path when using --quality-only",
+    )
     parser.add_argument(
         "-o", "--output",
         default=os.path.join("outputs", "Compile_output.xlsx"),
+        help="Output Excel path (extraction mode). Ignored by --quality-only if input is .xlsx",
     )
     parser.add_argument("--max-attempts", type=int, default=SETTINGS.max_attempts)
     parser.add_argument("--dpi", type=int, default=SETTINGS.dpi)
@@ -49,18 +54,29 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    pdf_path = os.path.abspath(args.pdf)
+    input_path = os.path.abspath(args.input)
     out_path = os.path.abspath(args.output)
     session = None
     result = None
 
     if args.quality_only:
+        if input_path.lower().endswith((".xlsx", ".xls", ".xlsm")):
+            out_path = input_path
+        if not os.path.isfile(out_path):
+            logger.error(
+                "Excel not found: %s\n"
+                "  Use: python main.py outputs\\Your_File.xlsx --quality-only\n"
+                "  Or: python main.py any.pdf -o outputs\\Your_File.xlsx --quality-only",
+                out_path,
+            )
+            sys.exit(1)
         import pandas as pd
         df_c = pd.read_excel(out_path, sheet_name="Block C - Fixed Assets")
         df_d = pd.read_excel(out_path, sheet_name="Block D - Working Capital")
-        block_c = df_c.to_dict("records")
-        block_d = df_d.to_dict("records")
+        block_c = normalize_block_c_from_excel(df_c.to_dict("records"))
+        block_d = normalize_block_d_from_excel(df_d.to_dict("records"))
     else:
+        pdf_path = input_path
         if not os.path.isfile(pdf_path):
             logger.error("PDF not found: %s", pdf_path)
             sys.exit(1)
@@ -78,9 +94,22 @@ def main() -> None:
         block_c = normalize_block_c_from_excel(df_c.to_dict("records"))
         block_d = normalize_block_d_from_excel(df_d.to_dict("records"))
 
+    fin_report = validate_financial_integrity(block_c, block_d, check_face=False)
     report = score_extraction(block_c, block_d)
     print("\n" + "=" * 60)
-    print("  QUALITY REPORT (compile sheet rules)")
+    print("  FINANCIAL VALIDATION (mandatory — compile arithmetic)")
+    print("=" * 60)
+    print(f"  Score: {fin_report.passed}/{fin_report.total} ({fin_report.score_pct:.1f}%)")
+    if fin_report.failures:
+        print("  Failed checks:")
+        for f in fin_report.failures[:20]:
+            print(f"    - {f}")
+    else:
+        print("  All financial checks passed.")
+    print(f"  Target: {SETTINGS.min_financial_validation_pct:.0f}% (financial data)")
+
+    print("\n" + "=" * 60)
+    print("  QUALITY REPORT (same rules as financial validation)")
     print("=" * 60)
     print(f"  Score: {report.passed}/{report.total} ({report.score_pct:.1f}%)")
     if report.failures:
@@ -92,11 +121,16 @@ def main() -> None:
     print(f"  Target: >= {SETTINGS.min_quality_pct:.0f}%")
 
     golden_path = args.golden.strip()
-    if not golden_path and "118184" in os.path.basename(pdf_path if not args.quality_only else out_path):
+    score_name = out_path if args.quality_only else input_path
+    if not golden_path and "118184" in os.path.basename(score_name):
         golden_path = os.path.join("config", "golden", "dsl_118184.json")
-    if not golden_path and "114045" in os.path.basename(pdf_path if not args.quality_only else out_path):
+    if not golden_path and "114045" in os.path.basename(score_name):
         golden_path = os.path.join("config", "golden", "dsl_114045.json")
-    exit_code = 0 if report.score_pct >= SETTINGS.min_quality_pct else 1
+    exit_code = 0
+    if SETTINGS.financial_validation_required and not fin_report.ok:
+        exit_code = 1
+    elif report.score_pct < SETTINGS.min_quality_pct:
+        exit_code = 1
     g_report = None
     acc_report = None
 

@@ -46,55 +46,16 @@ def _index_rows(rows: List[Dict]) -> Dict[int, Dict]:
 
 
 def score_extraction(block_c: List[Dict], block_d: List[Dict]) -> QualityReport:
-    """Score extracted data against compile sheet arithmetic rules."""
-    checks: List[Tuple[bool, str]] = []
-    rc = _index_rows(block_c)
-    rd = _index_rows(block_d)
+    """Score extracted data against compile sheet rules (delegates to strict financial validation)."""
+    from compile_extraction.financial_validation import validate_financial_integrity
 
-    # Block D — derived rows (compile sheet formulas)
-    for col in ("opening_rs", "closing_rs"):
-        exp4 = _g(rd, 1, col) + _g(rd, 2, col) + _g(rd, 3, col)
-        checks.append((_close(_g(rd, 4, col), exp4), f"D row 4 {col}"))
-        exp7 = _g(rd, 4, col) + _g(rd, 5, col) + _g(rd, 6, col)
-        checks.append((_close(_g(rd, 7, col), exp7), f"D row 7 {col}"))
-        exp11 = _g(rd, 7, col) + _g(rd, 8, col) + _g(rd, 9, col) + _g(rd, 10, col)
-        checks.append((_close(_g(rd, 11, col), exp11), f"D row 11 {col}"))
-        exp15 = _g(rd, 12, col) + _g(rd, 13, col) + _g(rd, 14, col)
-        checks.append((_close(_g(rd, 15, col), exp15), f"D row 15 {col}"))
-        exp16 = _g(rd, 11, col) - _g(rd, 15, col)
-        checks.append((_close(_g(rd, 16, col), exp16), f"D row 16 {col}"))
-
-    # Block D — key rows must have data
-    for sl in (1, 5, 6, 8, 9, 10, 12, 13, 17):
-        has = _g(rd, sl, "opening_rs") > 0 or _g(rd, sl, "closing_rs") > 0
-        if sl in (2, 3):
-            continue
-        checks.append((has, f"D row {sl} has data"))
-
-    # Block C — sub-total row 8
-    if 8 in rc:
-        for col in (
-            "gross_opening", "gross_closing", "net_opening", "net_closing",
-        ):
-            exp = sum(_g(rc, sl, col) for sl in range(2, 8))
-            checks.append((_close(_g(rc, 8, col), exp), f"C row 8 {col}"))
-
-    # Block C — row 10 totals
-    if 10 in rc and 8 in rc:
-        for col in ("net_opening", "net_closing"):
-            exp = _g(rc, 1, col) + _g(rc, 8, col) + _g(rc, 9, col)
-            checks.append((_close(_g(rc, 10, col), exp), f"C row 10 {col}"))
-
-    # Block C — row 10 net closing from schedule scale (> 1 crore)
-    if 10 in rc:
-        nc = _g(rc, 10, "net_closing")
-        checks.append((nc > 10_000_000, "C row 10 net_closing plausible"))
-
-    failures = [msg for ok, msg in checks if not ok]
-    passed = sum(1 for ok, _ in checks if ok)
-    total = len(checks)
-    pct = passed / total * 100 if total else 0.0
-    return QualityReport(score_pct=pct, passed=passed, total=total, failures=failures)
+    fin = validate_financial_integrity(block_c, block_d, pages=None, check_face=False)
+    return QualityReport(
+        score_pct=fin.score_pct,
+        passed=fin.passed,
+        total=fin.total,
+        failures=fin.failures,
+    )
 
 
 def score_against_golden(

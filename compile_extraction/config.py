@@ -16,6 +16,8 @@ class Settings:
     dpi: int = 300
     tolerance: float = 0.02
     min_quality_pct: float = 95.0
+    financial_validation_required: bool = True
+    min_financial_validation_pct: float = 100.0
 
     @property
     def ollama_generate_url(self) -> str:
@@ -35,6 +37,12 @@ class Settings:
             dpi=int(os.environ.get("OCR_DPI", "300")),
             tolerance=float(os.environ.get("VALIDATION_TOLERANCE", "0.02")),
             min_quality_pct=float(os.environ.get("MIN_QUALITY_PCT", "95")),
+            financial_validation_required=os.environ.get(
+                "FINANCIAL_VALIDATION", "1"
+            ).lower() not in ("0", "false", "no"),
+            min_financial_validation_pct=float(
+                os.environ.get("MIN_FINANCIAL_VALIDATION_PCT", "100")
+            ),
         )
 
 

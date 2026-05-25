@@ -53,6 +53,7 @@ from compile_extraction.schema import (
 )
 from schedule_parser import (
     parse_block_c_from_text,
+    _merge_cwip_row,
     parse_block_d_from_text,
     finalize_block_c_totals,
     _merge_d_row_lists,
@@ -98,9 +99,13 @@ class AgentResult:
     attempt: int
     block_c: List[Dict]
     block_d: List[Dict]
+    supervisor_complete: bool = False
+    supervisor_message: str = ""
     errors: List[ValidationError] = field(default_factory=list)
     confidence: float = 0.0
     passed: bool = False
+    financial_validation_pct: float = 0.0
+    financial_validation_ok: bool = False
 
 
 # ===========================================================================
@@ -734,6 +739,14 @@ class MapperAgent:
                     )
                     break
 
+        for pnum, text in pages.items():
+            if "block_c" in page_tags.get(pnum, set()):
+                continue
+            before = len(all_c)
+            all_c = _merge_cwip_row(all_c, text)
+            if len(all_c) > before:
+                logger.info("    Block C: CWIP from page %s", pnum)
+
         # Schedule 5: RapidOCR + text LLM when page OCR is garbled
         if not all_c:
             po = _get_paddle_ocr()
@@ -880,6 +893,18 @@ class MapperAgent:
             BLOCK_D_TEMPLATE, "block_d", "sl_no",
         )
 
+        # ── Reconcile to BS face anchors (generic OCR drift fix) ───
+        try:
+            from compile_extraction.reconcile import (
+                reconcile_block_c_to_face,
+                reconcile_block_d_sl14,
+            )
+
+            block_c = reconcile_block_c_to_face(block_c, pages)
+            block_d = reconcile_block_d_sl14(block_d, pages)
+        except Exception as exc:
+            logger.warning("  Face reconcile skipped: %s", exc)
+
         # ── Compute derived rows in Python ────────────────────────
         block_c = _compute_derived_rows_c(block_c)
         block_d = _compute_derived_rows_d(block_d)
@@ -952,8 +977,7 @@ def _crosscheck_block_d_with_summary(
         lakhs_map = [
             (7, r"(?:inventor\w*|imventon\w*)\s+8\s+([\d,\.:]+)\s+([\d,\.]+)", "Inventories total"),
             (9, r"trade\s+receiv\w*\s+9\s+([\d,\.]+[:\.]?\d*)\s+([\d,\.]+)", "Trade receivables"),
-            (8, r"cash\s+and\s+cash[^\d]*10A\s+([\d,\.]+)\s+([\d,\.]+)", "Cash"),
-            (10, r"other\s+current\s+assets[^\d]*([\d,\.]+)\s+([\d,\.]+)", "Other CA"),
+            (10, r"other\s+current\s+assets[^\d]*\b7\b[^\d]*([\d,\.]+)\s+([\d,\.]+)", "Other CA"),
             (13, r"bon\w*ngs[^\d]*\s*16\s+([\d,\.]+)\s+([\d,\.]+)", "Current borrowings"),
             (14, r"other\s+current\s+liabilit\w*[^\d]*\s*20\s+([\d,\.]+)\s+([\d,\.]+)", "Other CL"),
             (17, r"bon\w*ngs[^\d]*\s*13\s+([\d,\.]+)[^\d\$]*([\d,\.]+)", "Non-current borrowings"),
@@ -1118,100 +1142,154 @@ def _get(rows: List[Dict], sl_no: int, field: str) -> float:
 
 class ValidatorAgent:
     def run(
-        self, block_c: List[Dict], block_d: List[Dict]
+        self,
+        block_c: List[Dict],
+        block_d: List[Dict],
+        pages: Optional[Dict[int, str]] = None,
     ) -> Tuple[List[ValidationError], float]:
-        logger.info("=== AGENT 3: Validator ===")
+        logger.info("=== AGENT 3: Validator (strict financial) ===")
+        from compile_extraction.financial_validation import validate_financial_integrity
+
+        fin = validate_financial_integrity(block_c, block_d, pages, check_face=False)
         errors: List[ValidationError] = []
-        errors.extend(self._validate_c(block_c))
-        errors.extend(self._validate_d(block_d))
+        for chk in fin.checks:
+            if chk.ok:
+                continue
+            errors.append(ValidationError(
+                chk.block or "?",
+                chk.sl_no,
+                chk.field or chk.code,
+                0.0,
+                0.0,
+                chk.message,
+            ))
 
-        total_checks = max(10 + len(block_c) * 3, 1)
-        confidence = max(0.0, 1.0 - len(errors) / total_checks)
-        confidence = round(confidence * 100, 1)
-
+        confidence = round(fin.score_pct, 1)
         if errors:
-            logger.warning("  %s validation error(s) found", len(errors))
-            for e in errors:
+            logger.warning("  %s financial validation error(s)", len(errors))
+            for e in errors[:12]:
                 logger.warning("    [Block %s row %s] %s", e.block, e.sl_no, e.message)
         else:
-            logger.info("  All checks passed!")
+            logger.info("  All financial checks passed (%s/%s)", fin.passed, fin.total)
 
         return errors, confidence
 
-    def _validate_c(self, rows: List[Dict]) -> List[ValidationError]:
-        errs: List[ValidationError] = []
-        filled = sum(
-            1 for r in rows
-            if r.get("sl_no") in range(1, 8)
-            and (
-                clean_number(r.get("gross_opening", 0)) > 0
-                or clean_number(r.get("net_closing", 0)) > 0
+
+# ===========================================================================
+# CLOSED-LOOP HELPERS (Phase 1)
+# ===========================================================================
+
+def _apply_attempt_repair(
+    pages: Dict[int, str],
+    block_c: List[Dict],
+    block_d: List[Dict],
+) -> Tuple[List[Dict], List[Dict]]:
+    """Deterministic repair at start of each attempt (reconcile + mapping)."""
+    from compile_extraction.financial_validation import apply_financial_reconciliation
+
+    block_c, block_d = apply_financial_reconciliation(block_c, block_d, pages)
+    if os.environ.get("COMPILE_MAPPING", "1").lower() not in ("0", "false", "no"):
+        try:
+            from compile_extraction.compile_mapper import apply_compile_mapping
+
+            block_d = apply_compile_mapping(pages, block_d)
+            block_c, block_d = apply_financial_reconciliation(
+                block_c, block_d, pages
             )
-        )
-        if filled < 3:
-            errs.append(ValidationError(
-                "C", 0, "coverage", 6, filled,
-                f"Only {filled}/6 asset rows filled — Block C extraction failed",
-            ))
-        for row in rows:
-            sl = row.get("sl_no", 0)
-            if sl in (8, 10):
+        except Exception as exc:
+            logger.warning("  Compile mapping skipped: %s", exc)
+    return block_c, block_d
+
+
+def _financial_checks_to_errors(
+    fin_report,
+) -> List[ValidationError]:
+    errors: List[ValidationError] = []
+    for chk in fin_report.checks:
+        if chk.ok:
+            continue
+        errors.append(ValidationError(
+            chk.block or "?",
+            chk.sl_no,
+            chk.field or chk.code,
+            0.0,
+            0.0,
+            chk.message,
+        ))
+    return errors
+
+
+def _pending_to_errors(pending: List) -> List[ValidationError]:
+    errors: List[ValidationError] = []
+    for p in pending:
+        errors.append(ValidationError(
+            p.block,
+            int(p.sl_no),
+            p.field,
+            clean_number(getattr(p, "expected_from_bs", 0)),
+            clean_number(getattr(p, "got", 0)),
+            f"{getattr(p, 'reason', 'pending')}: got {int(getattr(p, 'got', 0)):,} "
+            f"vs BS {int(getattr(p, 'expected_from_bs', 0)):,}",
+        ))
+    return errors
+
+
+def _merge_defects(*groups: List[ValidationError]) -> List[ValidationError]:
+    seen: Set[Tuple[str, int, str]] = set()
+    merged: List[ValidationError] = []
+    for group in groups:
+        for e in group:
+            key = (e.block, int(e.sl_no), e.field)
+            if key in seen:
                 continue
-            gross_c = clean_number(row.get("gross_closing", 0))
-            gross_o = clean_number(row.get("gross_opening", 0))
-            add_rev = clean_number(row.get("gross_addition_reval", 0))
-            add_act = clean_number(row.get("gross_addition_actual", 0))
-            deduct = clean_number(row.get("gross_deduction", 0))
-            dep_end = clean_number(row.get("dep_up_to_end", 0))
-            dep_beg = clean_number(row.get("dep_up_to_beginning", 0))
-            dep_prov = clean_number(row.get("dep_provided_during_year", 0))
-            dep_adj = clean_number(row.get("dep_adjustment", 0))
+            seen.add(key)
+            merged.append(e)
+    return merged
 
-            expected_gc = gross_o + add_rev + add_act - deduct
-            if gross_c != 0 and not _close(gross_c, expected_gc):
-                errs.append(ValidationError(
-                    "C", sl, "gross_closing", expected_gc, gross_c,
-                    f"gross_closing({gross_c}) != opening+add-deduct({expected_gc:.0f})",
-                ))
 
-            expected_de = dep_beg + dep_prov - dep_adj
-            if dep_end != 0 and not _close(dep_end, expected_de):
-                errs.append(ValidationError(
-                    "C", sl, "dep_up_to_end", expected_de, dep_end,
-                    f"dep_up_to_end({dep_end}) != beg+prov-adj({expected_de:.0f})",
-                ))
+def _apply_pending_patches(
+    block_c: List[Dict],
+    block_d: List[Dict],
+    pending: List,
+) -> Tuple[List[Dict], List[Dict], int]:
+    """Patch cells from supervisor BS anchors before re-map."""
+    from compile_extraction.schema import BLOCK_C_FIELDS, BLOCK_D_FIELDS, sanitize_block_c, sanitize_block_d
 
-            if dep_end > gross_c * 1.05 and gross_c > 0:
-                errs.append(ValidationError(
-                    "C", sl, "dep_up_to_end", 0, dep_end,
-                    f"dep_up_to_end({dep_end}) > gross_closing({gross_c})",
-                ))
+    if not pending:
+        return block_c, block_d, 0
+    rc = {int(r["sl_no"]): dict(r) for r in block_c}
+    rd = {int(r["sl_no"]): dict(r) for r in block_d}
+    patched = 0
+    for p in pending:
+        exp = clean_number(getattr(p, "expected_from_bs", 0))
+        if exp == 0:
+            continue
+        sl = int(p.sl_no)
+        field = p.field
+        if p.block == "C":
+            if field not in BLOCK_C_FIELDS:
+                continue
+            row = rc.setdefault(sl, {"sl_no": sl})
+        else:
+            if field not in BLOCK_D_FIELDS:
+                continue
+            row = rd.setdefault(sl, {"sl_no": sl})
+        got = clean_number(row.get(field, 0))
+        if not _close_value(got, exp):
+            row[field] = exp
+            patched += 1
+    if patched:
+        logger.info("  Fixer: BS pending patch applied to %s cell(s)", patched)
+    block_c = sanitize_block_c([rc[sl] for sl in sorted(rc)])
+    block_d = sanitize_block_d([rd[sl] for sl in sorted(rd)])
+    return block_c, block_d, patched
 
-        return errs
 
-    def _validate_d(self, rows: List[Dict]) -> List[ValidationError]:
-        errs: List[ValidationError] = []
-        filled = sum(1 for r in rows if _has_data(r, {"sl_no", "item_name"}))
-        if filled < 5:
-            errs.append(ValidationError(
-                "D", 0, "coverage", 10, filled,
-                f"Only {filled}/17 rows filled — insufficient data",
-            ))
-        rd = {r["sl_no"]: r for r in rows}
-
-        def g(sl: int, col: str) -> float:
-            return _get(rows, sl, col)
-
-        for col in ("opening_rs", "closing_rs"):
-            if not _close(g(4, col), g(1, col) + g(2, col) + g(3, col)):
-                errs.append(ValidationError(
-                    "D", 4, col, 0, 0, f"row 4 != sum(1,2,3) for {col}",
-                ))
-            if not _close(g(7, col), g(4, col) + g(5, col) + g(6, col)):
-                errs.append(ValidationError(
-                    "D", 7, col, 0, 0, f"row 7 != 4+5+6 for {col}",
-                ))
-        return errs
+def _close_value(a: float, b: float) -> bool:
+    if a == 0 and b == 0:
+        return True
+    ref = max(abs(a), abs(b), 1.0)
+    return abs(a - b) <= max(100.0, ref * TOLERANCE)
 
 
 # ===========================================================================
@@ -1226,10 +1304,17 @@ class FixerAgent:
         errors: List[ValidationError],
         block_c: List[Dict],
         block_d: List[Dict],
+        pending: Optional[List] = None,
     ) -> Tuple[List[Dict], List[Dict]]:
         logger.info("=== AGENT 4: Fixer ===")
-        failed_c = list({e.sl_no for e in errors if e.block == "C"})
-        failed_d = list({e.sl_no for e in errors if e.block == "D"})
+        pending = pending or []
+
+        if pending:
+            block_c, block_d, _ = _apply_pending_patches(block_c, block_d, pending)
+
+        all_errors = _merge_defects(errors, _pending_to_errors(pending))
+        failed_c = list({e.sl_no for e in all_errors if e.block == "C"})
+        failed_d = list({e.sl_no for e in all_errors if e.block == "D"})
 
         if not failed_c and not failed_d:
             return block_c, block_d
@@ -1241,16 +1326,26 @@ class FixerAgent:
             pages, page_images, failed_c or None, failed_d or None
         )
 
+        from compile_extraction.schema import BLOCK_C_FIELDS, BLOCK_D_FIELDS
+
         if failed_c:
-            block_c = _patch_rows(block_c, new_c, failed_c, "sl_no")
+            block_c = _patch_rows(
+                block_c, new_c, failed_c, "sl_no", allowed_fields=set(BLOCK_C_FIELDS)
+            )
         if failed_d:
-            block_d = _patch_rows(block_d, new_d, failed_d, "sl_no")
+            block_d = _patch_rows(
+                block_d, new_d, failed_d, "sl_no", allowed_fields=set(BLOCK_D_FIELDS)
+            )
 
         return block_c, block_d
 
 
 def _patch_rows(
-    original: List[Dict], fixed: List[Dict], target_sl: List[int], id_field: str
+    original: List[Dict],
+    fixed: List[Dict],
+    target_sl: List[int],
+    id_field: str,
+    allowed_fields: Optional[Set[str]] = None,
 ) -> List[Dict]:
     fixed_map = {r[id_field]: r for r in fixed if r.get(id_field) in target_sl}
     result = []
@@ -1260,6 +1355,8 @@ def _patch_rows(
             merged = row.copy()
             for k, v in fixed_map[sl].items():
                 if k == id_field:
+                    continue
+                if allowed_fields is not None and k not in allowed_fields:
                     continue
                 if isinstance(v, (int, float)) and v != 0:
                     merged[k] = v
@@ -1284,8 +1381,14 @@ class ReporterAgent:
         )
 
         print("\n" + "=" * 60)
-        if result.passed:
-            print("  GREEN SIGNAL — VALIDATION PASSED")
+        if (
+            result.passed
+            and result.financial_validation_ok
+            and result.supervisor_complete
+        ):
+            print("  GREEN SIGNAL — CLOSED LOOP OK (FINANCIAL + BS CROSS-CHECK)")
+        elif result.financial_validation_ok:
+            print("  FINANCIAL OK — BS PENDING CELLS OR ROW GAPS REMAIN")
         else:
             print("  VALIDATION COMPLETED WITH WARNINGS")
         print("=" * 60)
@@ -1303,6 +1406,8 @@ class ReporterAgent:
         else:
             print("  Math Checks: All passed")
         print(f"  Saved to   : {output_path}")
+        if result.supervisor_message:
+            print(f"  Supervisor : {result.supervisor_message}")
         print("=" * 60 + "\n")
 
 
@@ -1329,6 +1434,11 @@ def run_pipeline(
         pdf_path, dpi=dpi, save_debug=save_ocr, audit_session=audit_session
     )
 
+    from compile_extraction.amount_units import merge_page_contexts
+
+    doc_ctx = merge_page_contexts(pages)
+    logger.info("  Document amount unit: %s", doc_ctx.unit.value)
+
     mapper = MapperAgent()
     block_c, block_d = mapper.run(pages, page_images)
 
@@ -1336,70 +1446,146 @@ def run_pipeline(
     validator = ValidatorAgent()
     reporter = ReporterAgent()
     verify_bs = os.environ.get("VERIFY_LOOP", "1").lower() not in ("0", "false", "no")
-    bs_verifier = None
-    if verify_bs:
-        from compile_extraction.bs_verifier import (
-            BalanceSheetVerifierAgent,
-            build_validation_result,
-            save_validation_result,
-        )
-        bs_verifier = BalanceSheetVerifierAgent()
+    supervisor_rounds = int(os.environ.get("SUPERVISOR_MAX_ROUNDS", "5"))
 
     result = AgentResult(attempt=1, block_c=block_c, block_d=block_d)
-    validation_doc = None
+    log_dir = Path("logs") / Path(pdf_path).stem.replace(" ", "_")
+    if audit_session:
+        log_dir = audit_session.log_dir
 
+    from compile_extraction.config import SETTINGS
+    from compile_extraction.financial_validation import validate_financial_integrity
+
+    sup_pending: List = []
     for attempt in range(1, max_attempts + 1):
-        ext_log.info("--- Validation Attempt %s/%s ---", attempt, max_attempts)
+        ext_log.info("--- Closed-loop attempt %s/%s ---", attempt, max_attempts)
         result.attempt = attempt
 
-        errors, confidence = validator.run(result.block_c, result.block_d)
-        result.errors = errors
-        result.confidence = confidence
-        result.passed = len(errors) == 0
+        result.block_c, result.block_d = _apply_attempt_repair(
+            pages, result.block_c, result.block_d
+        )
+
+        fin_loop = validate_financial_integrity(
+            result.block_c, result.block_d, pages, check_face=False
+        )
+        errors, confidence = validator.run(result.block_c, result.block_d, pages)
+        fin_errors = _financial_checks_to_errors(fin_loop)
 
         if verify_bs:
-            validation_doc = build_validation_result(
-                pdf_name, result.block_c, result.block_d, pages, errors,
+            from compile_extraction.bs_verifier import (
+                SupervisorAgent,
+                _compile_rows_filled,
             )
-            vpath = Path("logs") / Path(pdf_path).stem.replace(" ", "_") / "validation_result.json"
-            if audit_session:
-                vpath = audit_session.log_dir / "validation_result.json"
-            save_validation_result(validation_doc, vpath)
+
+            supervisor = SupervisorAgent(max_rounds=supervisor_rounds)
+            result.block_c, result.block_d, sup_report, _validation_doc = (
+                supervisor.run(
+                    pdf_name,
+                    pages,
+                    result.block_c,
+                    result.block_d,
+                    validator_errors=errors,
+                    log_dir=log_dir,
+                )
+            )
+            sup_pending = list(sup_report.pending)
+            result.supervisor_complete = sup_report.complete
+            result.supervisor_message = sup_report.message
             ext_log.info(
-                "  validation_result.json: %s passed, %s failed",
-                validation_doc.passed, validation_doc.failed,
+                "  supervisor: complete=%s pending=%s (%s)",
+                sup_report.complete,
+                len(sup_pending),
+                sup_report.message[:80],
             )
             if audit_session:
                 audit_session.verification_logger.info(
-                    "BS validation: %s/%s fields OK → %s",
-                    validation_doc.passed, validation_doc.total_checks, vpath,
+                    "Supervisor: %s (rounds=%s, pending=%s)",
+                    sup_report.message,
+                    sup_report.rounds,
+                    len(sup_pending),
                 )
-            failed_bs = [f for f in validation_doc.fields if not f.status]
-            if failed_bs and bs_verifier and attempt < max_attempts:
-                result.block_c, result.block_d, nfix = bs_verifier.run(
-                    pages, result.block_c, result.block_d, validation_doc,
-                )
-                if nfix:
-                    ext_log.info("  BS verifier fixed %s field(s); re-validating", nfix)
-                    errors, confidence = validator.run(result.block_c, result.block_d)
-                    result.errors = errors
-                    result.confidence = confidence
-                    result.passed = len(errors) == 0
+            fin_loop = validate_financial_integrity(
+                result.block_c, result.block_d, pages, check_face=False
+            )
+            errors, confidence = validator.run(result.block_c, result.block_d, pages)
+            fin_errors = _financial_checks_to_errors(fin_loop)
+        else:
+            from compile_extraction.bs_verifier import _compile_rows_filled
+
+            result.supervisor_complete = True
+            sup_pending = []
+
+        rows_ok, rows_msg = _compile_rows_filled(result.block_c, result.block_d)
+        strict_pending = os.environ.get(
+            "CLOSED_LOOP_STRICT_PENDING", "0"
+        ).lower() in ("1", "true", "yes")
+        pending_ok = len(sup_pending) == 0 or not strict_pending
+
+        result.errors = _merge_defects(errors, fin_errors, _pending_to_errors(sup_pending))
+        result.confidence = confidence
+        result.financial_validation_ok = fin_loop.ok
+        result.financial_validation_pct = fin_loop.score_pct
+        result.passed = fin_loop.ok and rows_ok and pending_ok
+        if verify_bs:
+            result.supervisor_complete = (
+                rows_ok and len(sup_pending) == 0 and fin_loop.ok
+            )
+
+        logger.info(
+            "  Attempt %s gate: financial=%s/%s %s pending=%s passed=%s",
+            attempt,
+            fin_loop.passed,
+            fin_loop.total,
+            rows_msg,
+            len(sup_pending),
+            result.passed,
+        )
+        if sup_pending and result.passed:
+            logger.info(
+                "  Closed loop passed with %s BS pending cell(s) (non-blocking)",
+                len(sup_pending),
+            )
 
         if result.passed:
-            logger.info("All validation checks passed on attempt %s", attempt)
+            logger.info("Closed loop passed on attempt %s", attempt)
             break
 
         if attempt < max_attempts:
             logger.info(
-                "Fixing %s error(s) — attempt %s/%s",
-                len(errors), attempt, max_attempts,
+                "Fixing %s defect(s) — attempt %s/%s",
+                len(result.errors), attempt, max_attempts,
             )
             result.block_c, result.block_d = fixer.run(
-                pages, page_images, errors, result.block_c, result.block_d
+                pages,
+                page_images,
+                result.errors,
+                result.block_c,
+                result.block_d,
+                pending=sup_pending,
             )
         else:
             logger.warning("Max attempts reached. Saving best result.")
+
+    result.block_c, result.block_d = _apply_attempt_repair(
+        pages, result.block_c, result.block_d
+    )
+    fin_report = validate_financial_integrity(
+        result.block_c, result.block_d, pages, check_face=True
+    )
+    result.financial_validation_pct = fin_report.score_pct
+    result.financial_validation_ok = fin_report.ok
+    logger.info(
+        "  Financial validation (mandatory): %s/%s (%.1f%%)",
+        fin_report.passed,
+        fin_report.total,
+        fin_report.score_pct,
+    )
+    if not fin_report.ok:
+        for chk in fin_report.checks:
+            if not chk.ok:
+                logger.warning("    [%s] %s", chk.code, chk.message)
+        if SETTINGS.financial_validation_required:
+            result.passed = False
 
     write_excel(result.block_c, result.block_d, output_path)
     reporter.run(result, output_path, pdf_name)

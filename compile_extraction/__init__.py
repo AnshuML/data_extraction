@@ -1,6 +1,10 @@
 """Enterprise compile sheet extraction from balance sheet PDFs."""
 
 from compile_extraction.config import SETTINGS, Settings
+from compile_extraction.financial_validation import (
+    apply_financial_reconciliation,
+    validate_financial_integrity,
+)
 from compile_extraction.quality import score_against_golden, score_extraction
 
 __version__ = "1.0.0"
@@ -9,6 +13,8 @@ __all__ = [
     "Settings",
     "score_extraction",
     "score_against_golden",
+    "validate_financial_integrity",
+    "apply_financial_reconciliation",
 ]
 
 

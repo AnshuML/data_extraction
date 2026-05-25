@@ -1,6 +1,7 @@
 """Fixed Block C / Block D compile sheet schema and utilities."""
 from __future__ import annotations
 
+import html
 import json
 import logging
 import re
@@ -43,14 +44,51 @@ BLOCK_D_TEMPLATE: List[Dict] = [
 
 _TEXT_FIELDS = {"asset_type", "item_name"}
 
+BLOCK_C_FIELDS = frozenset(BLOCK_C_TEMPLATE[0].keys()) - {"_gross_subtotal_imputed"}
+BLOCK_D_FIELDS = frozenset(BLOCK_D_TEMPLATE[0].keys())
+
+
+def parse_indian_number(val) -> float:
+    """Parse Indian lakh/crore comma grouping (e.g. 26,27,77,964 → 262777964)."""
+    if val is None:
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    s = str(val).strip().replace(" ", "")
+    if not s or s in ("-", "—"):
+        return 0.0
+    if "," not in s:
+        try:
+            return float(re.sub(r"[^\d.]", "", s) or 0)
+        except ValueError:
+            return 0.0
+    parts: List[int] = []
+    for p in s.split(","):
+        p = re.sub(r"[^\d]", "", p)
+        if p:
+            parts.append(int(p))
+    if not parts:
+        return 0.0
+    if len(parts) == 1:
+        return float(parts[0])
+    total = float(parts[-1])
+    exp = 3
+    for i in range(len(parts) - 2, -1, -1):
+        total += parts[i] * (10**exp)
+        exp += 2
+    return total
+
 
 def clean_number(val) -> float:
     if val is None:
         return 0.0
     if isinstance(val, (int, float)):
         return float(val)
+    s = str(val).strip()
+    if "," in s and len([p for p in s.split(",") if re.search(r"\d", p)]) >= 2:
+        return parse_indian_number(s)
     try:
-        s = str(val).replace(",", "").replace(" ", "").replace("-", "0")
+        s = s.replace(",", "").replace(" ", "").replace("-", "0")
         return float(s)
     except (ValueError, TypeError):
         return 0.0
@@ -88,12 +126,70 @@ def merge_with_template(
         for template_row in result:
             if template_row.get(id_field) == match_val:
                 for k, v in llm_row.items():
-                    if k == id_field or v is None:
+                    if k == id_field or v is None or k not in template_row:
                         continue
                     if k in _TEXT_FIELDS:
                         if isinstance(v, str) and v.strip():
                             template_row[k] = v.strip()
+                        elif isinstance(v, (int, float)) and v not in (0, 0.0):
+                            template_row[k] = str(v)
                     else:
                         template_row[k] = clean_number(v)
                 break
     return result
+
+
+def sanitize_block_c(rows: List[Dict]) -> List[Dict]:
+    """Drop keys that do not belong on Block C (e.g. opening_rs leaked from D)."""
+    names = {t["sl_no"]: t["asset_type"] for t in BLOCK_C_TEMPLATE}
+    out: List[Dict] = []
+    for raw in rows:
+        try:
+            sl = int(float(raw.get("sl_no", 0)))
+        except (TypeError, ValueError):
+            continue
+        if not sl:
+            continue
+        row = {k: raw.get(k) for k in BLOCK_C_FIELDS}
+        row["sl_no"] = sl
+        row["asset_type"] = (
+            str(raw.get("asset_type") or "").strip() or names.get(sl, "")
+        )
+        for k in BLOCK_C_FIELDS:
+            if k in _TEXT_FIELDS or k == "sl_no":
+                continue
+            row[k] = clean_number(row.get(k, 0))
+        out.append(row)
+    by_sl = {r["sl_no"]: r for r in out}
+    return [by_sl[sl] for sl in sorted(by_sl)] if by_sl else [t.copy() for t in BLOCK_C_TEMPLATE]
+
+
+def sanitize_block_d(rows: List[Dict]) -> List[Dict]:
+    """Drop Block C PPE columns from Block D rows (sl_no 2/3 collision fix)."""
+    names = {t["sl_no"]: t["item_name"] for t in BLOCK_D_TEMPLATE}
+    out: List[Dict] = []
+    for raw in rows:
+        try:
+            sl = int(float(raw.get("sl_no", 0)))
+        except (TypeError, ValueError):
+            continue
+        if not sl:
+            continue
+        row = {
+            "sl_no": sl,
+            "item_name": html.unescape(
+                str(raw.get("item_name") or "").strip() or names.get(sl, "")
+            ),
+            "opening_rs": clean_number(raw.get("opening_rs", 0)),
+            "closing_rs": clean_number(raw.get("closing_rs", 0)),
+        }
+        out.append(row)
+    by_sl = {r["sl_no"]: r for r in out}
+    if not by_sl:
+        return [t.copy() for t in BLOCK_D_TEMPLATE]
+    merged = [t.copy() for t in BLOCK_D_TEMPLATE]
+    for i, trow in enumerate(merged):
+        sl = trow["sl_no"]
+        if sl in by_sl:
+            merged[i] = by_sl[sl]
+    return merged
