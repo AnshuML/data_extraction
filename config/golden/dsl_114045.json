@@ -1,0 +1,260 @@
+{
+  "company": "DSL 114045",
+  "psl": "32742",
+  "block_c": [
+    {
+      "sl_no": 1,
+      "asset_type": "Land",
+      "gross_opening": 1.0,
+      "gross_addition_reval": 30156500.0,
+      "gross_addition_actual": 3135570.0,
+      "gross_deduction": 0.0,
+      "gross_closing": 0.0,
+      "dep_up_to_beginning": 11992000.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 0.0,
+      "net_opening": 0.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 2,
+      "asset_type": "Building",
+      "gross_opening": 2.0,
+      "gross_addition_reval": 80266400.0,
+      "gross_addition_actual": 8026640.0,
+      "gross_deduction": 3115530.0,
+      "gross_closing": 2541800.0,
+      "dep_up_to_beginning": 0.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 0.0,
+      "net_opening": 0.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 3,
+      "asset_type": "Plant and Machinery",
+      "gross_opening": 3.0,
+      "gross_addition_reval": 50996950.0,
+      "gross_addition_actual": 5184468.0,
+      "gross_deduction": 2689818.0,
+      "gross_closing": 2378670.0,
+      "dep_up_to_beginning": 292768500.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 2378670.0,
+      "net_opening": 0.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 4,
+      "asset_type": "Transport Equipment",
+      "gross_opening": 4.0,
+      "gross_addition_reval": 1601300.0,
+      "gross_addition_actual": 9796000.0,
+      "gross_deduction": 0.0,
+      "gross_closing": 6217000.0,
+      "dep_up_to_beginning": 0.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 9292000.0,
+      "dep_up_to_end": 26000.0,
+      "net_opening": 0.0,
+      "net_closing": 9318000.0
+    },
+    {
+      "sl_no": 5,
+      "asset_type": "Computer Equipment & software",
+      "gross_opening": 5.0,
+      "gross_addition_reval": 1742900.0,
+      "gross_addition_actual": 1442500.0,
+      "gross_deduction": 16314000.0,
+      "gross_closing": 0.0,
+      "dep_up_to_beginning": 1115000.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 0.0,
+      "net_opening": 683000.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 6,
+      "asset_type": "Pollution control equipment",
+      "gross_opening": 0.0,
+      "gross_addition_reval": 0.0,
+      "gross_addition_actual": 0.0,
+      "gross_deduction": 0.0,
+      "gross_closing": 0.0,
+      "dep_up_to_beginning": 0.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 0.0,
+      "net_opening": 0.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 7,
+      "asset_type": "Others",
+      "gross_opening": 7.0,
+      "gross_addition_reval": 4493000.0,
+      "gross_addition_actual": 3886600.0,
+      "gross_deduction": 44058000.0,
+      "gross_closing": 0.0,
+      "dep_up_to_beginning": 872000.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 0.0,
+      "net_opening": 588000.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 8,
+      "asset_type": "Sub-total(2 to 7)",
+      "gross_opening": 21.0,
+      "gross_addition_reval": 139100550.0,
+      "gross_addition_actual": 28336208.0,
+      "gross_deduction": 66177348.0,
+      "gross_closing": 11137470.0,
+      "dep_up_to_beginning": 294755500.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 9292000.0,
+      "dep_up_to_end": 2404670.0,
+      "net_opening": 1271000.0,
+      "net_closing": 9318000.0
+    },
+    {
+      "sl_no": 9,
+      "asset_type": "Capital Work in Progress",
+      "gross_opening": 9.0,
+      "gross_addition_reval": 58812000.0,
+      "gross_addition_actual": 9643260.0,
+      "gross_deduction": 10.0,
+      "gross_closing": 0.0,
+      "dep_up_to_beginning": 376206000.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 0.0,
+      "dep_up_to_end": 0.0,
+      "net_opening": 0.0,
+      "net_closing": 0.0
+    },
+    {
+      "sl_no": 10,
+      "asset_type": "Total(1+8+9)",
+      "gross_opening": 31.0,
+      "gross_addition_reval": 228069050.0,
+      "gross_addition_actual": 41115038.0,
+      "gross_deduction": 66177358.0,
+      "gross_closing": 11137470.0,
+      "dep_up_to_beginning": 682953500.0,
+      "dep_provided_during_year": 0.0,
+      "dep_adjustment": 9292000.0,
+      "dep_up_to_end": 2404670.0,
+      "net_opening": 1271000.0,
+      "net_closing": 9318000.0
+    }
+  ],
+  "block_d": [
+    {
+      "sl_no": 1,
+      "item_name": "Raw Materials & Components and Packing materials",
+      "opening_rs": 29615000.0,
+      "closing_rs": 116187000.0
+    },
+    {
+      "sl_no": 2,
+      "item_name": "Fuels & Lubricants",
+      "opening_rs": 0.0,
+      "closing_rs": 0.0
+    },
+    {
+      "sl_no": 3,
+      "item_name": "Spares, Stores & others",
+      "opening_rs": 512403000.0,
+      "closing_rs": 534229000.0
+    },
+    {
+      "sl_no": 4,
+      "item_name": "Sub-Total(1 to 3)",
+      "opening_rs": 542018000.0,
+      "closing_rs": 650416000.0
+    },
+    {
+      "sl_no": 5,
+      "item_name": "Semi-finished goods/work in progress",
+      "opening_rs": 7413000.0,
+      "closing_rs": 15018000.0
+    },
+    {
+      "sl_no": 6,
+      "item_name": "Finished goods",
+      "opening_rs": 132982000.0,
+      "closing_rs": 322292000.0
+    },
+    {
+      "sl_no": 7,
+      "item_name": "Total inventory(4 to 6)",
+      "opening_rs": 682413000.0,
+      "closing_rs": 987726000.0
+    },
+    {
+      "sl_no": 8,
+      "item_name": "Cash in Hand & at Bank",
+      "opening_rs": 14729000.0,
+      "closing_rs": 3579000.0
+    },
+    {
+      "sl_no": 9,
+      "item_name": "Sundry Debtors",
+      "opening_rs": 592362000.0,
+      "closing_rs": 489293000.0
+    },
+    {
+      "sl_no": 10,
+      "item_name": "Other current assests",
+      "opening_rs": 116510000.0,
+      "closing_rs": 106100000.0
+    },
+    {
+      "sl_no": 11,
+      "item_name": "Total current assets(7 to 10)",
+      "opening_rs": 1406014000.0,
+      "closing_rs": 1586698000.0
+    },
+    {
+      "sl_no": 12,
+      "item_name": "Sundry creditors",
+      "opening_rs": 1346472000.0,
+      "closing_rs": 562851000.0
+    },
+    {
+      "sl_no": 13,
+      "item_name": "Over draft,cash credit, other short term loan from banks & other financial institutions",
+      "opening_rs": 350838000.0,
+      "closing_rs": 352185000.0
+    },
+    {
+      "sl_no": 14,
+      "item_name": "Other current liabilities",
+      "opening_rs": 78947000.0,
+      "closing_rs": 163490000.0
+    },
+    {
+      "sl_no": 15,
+      "item_name": "Total Current liabilities(12 to 14)",
+      "opening_rs": 1776257000.0,
+      "closing_rs": 1078526000.0
+    },
+    {
+      "sl_no": 16,
+      "item_name": "Working Capital(11-15)",
+      "opening_rs": -370243000.0,
+      "closing_rs": 508172000.0
+    },
+    {
+      "sl_no": 17,
+      "item_name": "Outstanding loans(excluding interest but including deposits)",
+      "opening_rs": 826357000.0,
+      "closing_rs": 1659497000.0
+    }
+  ]
+}

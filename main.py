@@ -1,207 +1,181 @@
-"""
-Enterprise Balance Sheet Extraction Pipeline
-─────────────────────────────────────────────
-Usage:
-    # Single PDF
-    python main.py --pdf "path/to/balance_sheet.pdf"
-
-    # Single PDF with custom output path
-    python main.py --pdf "path/to/balance_sheet.pdf" --out "path/to/output.xlsx"
-
-    # Batch: process all PDFs in a folder
-    python main.py --batch "path/to/pdf_folder" --out "path/to/output_folder"
-
-    # Override scale (if PDF is in Lakhs → multiply × 100000)
-    python main.py --pdf "..." --scale 100000
-
-    # Override Ollama models
-    python main.py --pdf "..." --extractor gemma3:4b --verifier llama3.2:3b
-"""
+#!/usr/bin/env python3
+"""Production CLI: Balance Sheet PDF → Compile Sheet Excel."""
 from __future__ import annotations
 
 import argparse
-from typing import Optional
+import logging
 import os
 import sys
-import time
 
-# ── Add project root to path so sub-packages resolve correctly ──────────────
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from compile_extraction.audit import AuditSession
+from compile_extraction.config import SETTINGS
+from compile_extraction.excel import write_excel
+from compile_extraction.pipeline import run_pipeline
+from compile_extraction.reports import build_accuracy_report
+from compile_extraction.excel import (
+    normalize_block_c_from_excel,
+    normalize_block_d_from_excel,
+)
+from compile_extraction.financial_validation import validate_financial_integrity
+from compile_extraction.quality import score_against_golden, score_extraction
 
-import config
-from exporters import excel_exporter
-from supervisor import orchestrator
-from utils.logger import get_logger
-from utils.ollama_client import is_ollama_alive
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
-logger = get_logger("main")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Argument parsing
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="Enterprise Balance Sheet → Excel extraction pipeline"
-    )
-    group = p.add_mutually_exclusive_group(required=True)
-    group.add_argument("--pdf",   type=str,
-                       help="Path to a single PDF file")
-    group.add_argument("--batch", type=str,
-                       help="Folder containing PDF files")
-
-    p.add_argument("--out",       type=str, default=None,
-                   help="Output .xlsx path (single) or folder (batch)")
-    p.add_argument("--scale",     type=int, default=1,
-                   help="Multiply extracted numbers by this factor (e.g. 100000 for Lakhs)")
-    p.add_argument("--extractor", type=str, default=None,
-                   help=f"Ollama extractor model (default: {config.EXTRACTOR_MODEL})")
-    p.add_argument("--verifier",  type=str, default=None,
-                   help=f"Ollama verifier model (default: {config.VERIFIER_MODEL})")
-    p.add_argument("--retries",   type=int, default=config.MAX_RETRIES,
-                   help=f"Max retry attempts (default: {config.MAX_RETRIES})")
-    return p.parse_args()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Pre-flight checks
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _preflight() -> bool:
-    ok = True
-
-    # Tesseract
-    if not os.path.exists(config.TESSERACT_CMD):
-        logger.warning(
-            "Tesseract not found at %s — scanned PDFs will fail OCR.\n"
-            "  Install from: https://github.com/UB-Mannheim/tesseract/wiki\n"
-            "  Or set env var TESSERACT_CMD to the correct path.",
-            config.TESSERACT_CMD,
-        )
-
-    # Ollama — warning only; agents handle absence gracefully (deterministic mode)
-    if not is_ollama_alive():
-        logger.warning(
-            "Ollama server not reachable at %s — running in DETERMINISTIC MODE.\n"
-            "  LLM-based disambiguation will be skipped (RapidFuzz rows used as-is).\n"
-            "  To enable full LLM mode:\n"
-            "    ollama serve\n"
-            "    ollama pull %s\n"
-            "    ollama pull %s",
-            config.OLLAMA_BASE_URL,
-            config.EXTRACTOR_MODEL,
-            config.VERIFIER_MODEL,
-        )
-
-    return ok
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Single PDF processing
-# ─────────────────────────────────────────────────────────────────────────────
-
-def process_single(pdf_path: str, out_path: Optional[str]) -> int:
-    """Returns 0 on SUCCESS/PARTIAL, 1 on FAILED."""
-    if not os.path.exists(pdf_path):
-        logger.error("PDF not found: %s", pdf_path)
-        return 1
-
-    logger.info("Starting pipeline for: %s", os.path.basename(pdf_path))
-    result = orchestrator.run(pdf_path)
-
-    if result.final_status == "FAILED":
-        logger.error("Pipeline FAILED for %s", os.path.basename(pdf_path))
-        return 1
-
-    excel_path = excel_exporter.export(result, out_path)
-    logger.info("Output: %s", excel_path)
-
-    # Print summary
-    print("\n" + "─" * 60)
-    print(f"  Status  : {result.final_status}")
-    print(f"  PDF     : {os.path.basename(pdf_path)}")
-    print(f"  Excel   : {excel_path}")
-    print(f"  Attempts: {len(result.attempts)}")
-    print(f"  Time    : {result.total_elapsed}s")
-    print("─" * 60 + "\n")
-
-    return 0
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Batch processing
-# ─────────────────────────────────────────────────────────────────────────────
-
-def process_batch(folder: str, out_folder: Optional[str]) -> int:
-    pdf_files = [
-        f for f in os.listdir(folder)
-        if f.lower().endswith(".pdf")
-    ]
-    if not pdf_files:
-        logger.error("No PDF files found in: %s", folder)
-        return 1
-
-    if out_folder:
-        os.makedirs(out_folder, exist_ok=True)
-
-    logger.info("Batch processing %d PDFs from: %s", len(pdf_files), folder)
-
-    summary = {"success": 0, "partial": 0, "failed": 0}
-
-    for i, pdf_name in enumerate(pdf_files, start=1):
-        pdf_path = os.path.join(folder, pdf_name)
-        out_path = None
-        if out_folder:
-            base = os.path.splitext(pdf_name)[0]
-            out_path = os.path.join(out_folder, f"{base}_compile.xlsx")
-
-        logger.info("[%d/%d] Processing: %s", i, len(pdf_files), pdf_name)
-
-        try:
-            result = orchestrator.run(pdf_path)
-            excel_exporter.export(result, out_path)
-            summary[result.final_status.lower()] = summary.get(result.final_status.lower(), 0) + 1
-            logger.info("[%d/%d] %s → %s", i, len(pdf_files), pdf_name, result.final_status)
-        except Exception as exc:
-            logger.error("[%d/%d] EXCEPTION for %s: %s", i, len(pdf_files), pdf_name, exc)
-            summary["failed"] += 1
-
-    print("\n" + "=" * 60)
-    print("  BATCH COMPLETE")
-    print(f"  Success : {summary.get('success', 0)}")
-    print(f"  Partial : {summary.get('partial', 0)}")
-    print(f"  Failed  : {summary.get('failed', 0)}")
-    print("=" * 60 + "\n")
-
-    return 0 if summary.get("failed", 0) == 0 else 1
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Entry point
-# ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    args = _parse_args()
+    parser = argparse.ArgumentParser(
+        description="Extract Block C & D compile sheet from balance sheet PDF"
+    )
+    parser.add_argument(
+        "input",
+        help="Balance sheet PDF path, or compile Excel path when using --quality-only",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default=os.path.join("outputs", "Compile_output.xlsx"),
+        help="Output Excel path (extraction mode). Ignored by --quality-only if input is .xlsx",
+    )
+    parser.add_argument("--max-attempts", type=int, default=SETTINGS.max_attempts)
+    parser.add_argument("--dpi", type=int, default=SETTINGS.dpi)
+    parser.add_argument("--save-ocr", action="store_true")
+    parser.add_argument(
+        "--quality-only",
+        action="store_true",
+        help="Score existing Excel without re-running extraction",
+    )
+    parser.add_argument(
+        "--golden",
+        default="",
+        help="Optional golden JSON for field-level accuracy (e.g. config/golden/dsl_118184.json)",
+    )
+    args = parser.parse_args()
 
-    # Apply CLI overrides to config
-    config.PDF_UNIT_MULTIPLIER = args.scale
-    if args.extractor:
-        config.EXTRACTOR_MODEL = args.extractor
-    if args.verifier:
-        config.VERIFIER_MODEL = args.verifier
-    config.MAX_RETRIES = args.retries
+    input_path = os.path.abspath(args.input)
+    out_path = os.path.abspath(args.output)
+    session = None
+    result = None
 
-    # Pre-flight
-    if not _preflight():
-        sys.exit(1)
-
-    # Run
-    if args.pdf:
-        exit_code = process_single(args.pdf, args.out)
+    if args.quality_only:
+        if input_path.lower().endswith((".xlsx", ".xls", ".xlsm")):
+            out_path = input_path
+        if not os.path.isfile(out_path):
+            logger.error(
+                "Excel not found: %s\n"
+                "  Use: python main.py outputs\\Your_File.xlsx --quality-only\n"
+                "  Or: python main.py any.pdf -o outputs\\Your_File.xlsx --quality-only",
+                out_path,
+            )
+            sys.exit(1)
+        import pandas as pd
+        df_c = pd.read_excel(out_path, sheet_name="Block C - Fixed Assets")
+        df_d = pd.read_excel(out_path, sheet_name="Block D - Working Capital")
+        block_c = normalize_block_c_from_excel(df_c.to_dict("records"))
+        block_d = normalize_block_d_from_excel(df_d.to_dict("records"))
     else:
-        exit_code = process_batch(args.batch, args.out)
+        pdf_path = input_path
+        if not os.path.isfile(pdf_path):
+            logger.error("PDF not found: %s", pdf_path)
+            sys.exit(1)
+        session = AuditSession(pdf_path, base_log_dir="logs")
+        result = run_pipeline(
+            pdf_path, out_path,
+            max_attempts=args.max_attempts,
+            dpi=args.dpi,
+            save_ocr=args.save_ocr,
+            audit_session=session,
+        )
+        import pandas as pd
+        df_c = pd.read_excel(out_path, sheet_name="Block C - Fixed Assets")
+        df_d = pd.read_excel(out_path, sheet_name="Block D - Working Capital")
+        block_c = normalize_block_c_from_excel(df_c.to_dict("records"))
+        block_d = normalize_block_d_from_excel(df_d.to_dict("records"))
 
+    fin_report = validate_financial_integrity(block_c, block_d, check_face=False)
+    report = score_extraction(block_c, block_d)
+    print("\n" + "=" * 60)
+    print("  FINANCIAL VALIDATION (mandatory — compile arithmetic)")
+    print("=" * 60)
+    print(f"  Score: {fin_report.passed}/{fin_report.total} ({fin_report.score_pct:.1f}%)")
+    if fin_report.failures:
+        print("  Failed checks:")
+        for f in fin_report.failures[:20]:
+            print(f"    - {f}")
+    else:
+        print("  All financial checks passed.")
+    print(f"  Target: {SETTINGS.min_financial_validation_pct:.0f}% (financial data)")
+
+    print("\n" + "=" * 60)
+    print("  QUALITY REPORT (same rules as financial validation)")
+    print("=" * 60)
+    print(f"  Score: {report.passed}/{report.total} ({report.score_pct:.1f}%)")
+    if report.failures:
+        print("  Issues:")
+        for f in report.failures[:15]:
+            print(f"    - {f}")
+    else:
+        print("  All internal checks passed.")
+    print(f"  Target: >= {SETTINGS.min_quality_pct:.0f}%")
+
+    golden_path = args.golden.strip()
+    score_name = out_path if args.quality_only else input_path
+    if not golden_path and "118184" in os.path.basename(score_name):
+        golden_path = os.path.join("config", "golden", "dsl_118184.json")
+    if not golden_path and "114045" in os.path.basename(score_name):
+        golden_path = os.path.join("config", "golden", "dsl_114045.json")
+    exit_code = 0
+    if SETTINGS.financial_validation_required and not fin_report.ok:
+        exit_code = 1
+    elif report.score_pct < SETTINGS.min_quality_pct:
+        exit_code = 1
+    g_report = None
+    acc_report = None
+
+    if golden_path and os.path.isfile(golden_path):
+        import json
+        with open(golden_path, encoding="utf-8") as fh:
+            golden = json.load(fh)
+        g_report = score_against_golden(
+            block_c, block_d,
+            golden.get("block_c", []),
+            golden.get("block_d", []),
+        )
+        print("\n" + "=" * 60)
+        print("  GOLDEN ACCURACY (reference tables)")
+        print("=" * 60)
+        print(f"  Score: {g_report.passed}/{g_report.total} ({g_report.score_pct:.1f}%)")
+        if g_report.failures:
+            print("  Mismatches:")
+            for f in g_report.failures[:20]:
+                print(f"    - {f}")
+        print(f"  Target: >= {SETTINGS.min_quality_pct:.0f}%")
+        if g_report.score_pct < SETTINGS.min_quality_pct:
+            exit_code = 1
+        acc_report = build_accuracy_report(
+            block_c, block_d,
+            golden_c=golden.get("block_c", []),
+            golden_d=golden.get("block_d", []),
+            rules=report,
+        )
+        if acc_report:
+            print("\n  FIELD-LEVEL ACCURACY")
+            for line in acc_report.to_summary_lines()[:12]:
+                print(f"  {line}")
+
+    if session is not None:
+        session.finalize(
+            result=result,
+            output_path=out_path,
+            rules_report=report,
+            golden_report=g_report,
+            field_details=acc_report.field_details if acc_report else None,
+        )
+        print(f"\n  Audit logs: logs/{session.stem}/")
+
+    print("=" * 60 + "\n")
     sys.exit(exit_code)
 
 

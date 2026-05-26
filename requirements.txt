@@ -1,61 +1,16 @@
-# ================================================================
-# Enterprise Balance Sheet Extraction Pipeline
-# Requirements — Python 3.10+
-# Install: pip install -r requirements.txt
-# ================================================================
-
-# ── PDF Processing ───────────────────────────────────────────────
-pymupdf>=1.24.0              # PyMuPDF (fitz) — text extraction, page rendering, DPI control
-pdfplumber>=0.11.0           # Cell matrix extraction — critical for column alignment fix
-
-# ── Image Processing & OCR ───────────────────────────────────────
-Pillow>=10.0.0               # Image handling (PNG conversion from PDF pages)
-opencv-python-headless>=4.9.0  # Grid line detection for scanned PDFs (no GUI needed)
-pytesseract>=0.3.10          # Python wrapper for Tesseract OCR engine
-numpy>=1.26.0                # Required by OpenCV
-
-# ── Surya OCR (AI-based, better accuracy than Tesseract) ─────────
-# Activate with: USE_SURYA=1 (env var) or config.USE_SURYA = True
-# CPU pe slow hoga (~5-10s/page), GPU pe fast (~0.3s/page)
-# First run pe ~500MB model weights download honge automatically
-surya-ocr>=0.7.0             # Table recognition + OCR (90+ languages, beats cloud OCR)
-
-# ── Row Mapping ──────────────────────────────────────────────────
-rapidfuzz>=3.6.0             # Fuzzy label matching — canonical row assignment
-
-# ── LLM Integration (Ollama local API) ───────────────────────────
-requests>=2.31.0             # HTTP calls to Ollama API (http://localhost:11434)
-
-# ── Excel Export ─────────────────────────────────────────────────
-openpyxl>=3.1.2              # Excel write with cell colours, borders, formatting
-pandas>=2.2.0                # DataFrame operations for tabular data
-
-# ── Utilities ────────────────────────────────────────────────────
-python-dotenv>=1.0.0         # Load .env for OLLAMA_BASE_URL, TESSERACT_CMD overrides
-
-# ================================================================
-# External binaries required (NOT pip-installable):
-# ================================================================
-#
-# 1. Tesseract OCR 5.x
-#    Windows : https://github.com/UB-Mannheim/tesseract/wiki
-#              Install path: C:\Program Files\Tesseract-OCR\tesseract.exe
-#              Language pack: English (eng.traineddata)
-#    Linux   : sudo apt install tesseract-ocr tesseract-ocr-eng
-#
-# 2. Ollama (local LLM runtime)
-#    Download: https://ollama.com/download
-#    After install:
-#      ollama serve                  # start server
-#      ollama pull gemma3:4b         # Agent 1 — Extractor
-#      ollama pull llama3.2:3b       # Agent 2 — Verifier
-#
-# ================================================================
-# Optional — Deep learning table detection (heavy, use only if
-# OpenCV grid detection fails on complex borderless tables):
-# ================================================================
-#
-#   pip install transformers timm torch torchvision \
-#       --index-url https://download.pytorch.org/whl/cpu
-#
-# ================================================================
+# Compile sheet extraction (primary) + legacy agentic pipeline
+pymupdf>=1.24.0
+pdfplumber>=0.11.0
+python-docx
+Pillow>=10.0.0
+pandas>=2.2.0
+openpyxl>=3.1.2
+requests>=2.31.0
+pytesseract>=0.3.10
+paddleocr
+rapidocr-onnxruntime
+opencv-python-headless>=4.9.0
+numpy>=1.26.0
+rapidfuzz>=3.6.0
+python-dotenv>=1.0.0
+# Optional: surya-ocr>=0.7.0  # legacy agentic pipeline (USE_SURYA=1)
